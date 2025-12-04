@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+sqlalchemy[asyncio]
+alembic
+asyncpg
+pgvector
+pydantic-settings
+python-dotenv
+python-multipart
+faster-whisper
+google-generativeai
+sentence-transformers
+numpy
+scipy
+gTTS
+speechbrain
+torchaudio
