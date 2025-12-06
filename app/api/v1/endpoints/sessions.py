@@ -31,6 +31,17 @@ async def read_sessions(
     """
     return await crud_chat.session.get_multi(db=db, skip=skip, limit=limit)
 
+# --- Messages for a session ---
+@router.get("/sessions/{session_id}/messages", response_model=List[schemas.MessageResponse])
+async def read_session_messages(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """
+    Retrieve messages for a specific session.
+    """
+    return await crud_chat.message.get_by_session_id(db=db, session_id=session_id)
+
 @router.get("/sessions/{session_id}", response_model=schemas.SessionResponse)
 async def read_session(
     session_id: UUID,

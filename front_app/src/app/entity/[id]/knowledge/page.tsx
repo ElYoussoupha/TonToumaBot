@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Trash2, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
     Table,
     TableBody,
@@ -14,53 +16,87 @@ import {
 } from "@/components/ui/table";
 import { UploadBox } from "@/components/UploadBox";
 import api from "@/lib/api";
-import { KnowledgeChunk } from "@/types";
+import { KBDocument } from "@/types";
 
 export default function KnowledgePage() {
     const params = useParams();
     const entityId = params.id as string;
-    const [chunks, setChunks] = useState<KnowledgeChunk[]>([]);
+    const [documents, setDocuments] = useState<KBDocument[]>([]);
+    const [textTitle, setTextTitle] = useState<string>("");
+    const [textContent, setTextContent] = useState<string>("");
+    const [isSubmittingText, setIsSubmittingText] = useState<boolean>(false);
 
-    const fetchChunks = async () => {
+    const fetchDocuments = useCallback(async () => {
         try {
-            const res = await api.get<KnowledgeChunk[]>(`/knowledge/${entityId}`);
-            setChunks(res.data);
+            const res = await api.get<KBDocument[]>(`/kb/documents/${entityId}`);
+            setDocuments(res.data);
         } catch (error) {
-            console.error("Failed to fetch knowledge", error);
+            console.error("Failed to fetch documents", error);
+        }
+    }, [entityId]);
+
+    const handleSubmitText = async () => {
+        if (!textTitle.trim() || !textContent.trim()) {
+            alert("Veuillez renseigner le titre et le contenu.");
+            return;
+        }
+        setIsSubmittingText(true);
+        try {
+            const formData = new FormData();
+            formData.append("title", textTitle.trim());
+            formData.append("content", textContent);
+            formData.append("entity_id", entityId);
+            await api.post("/kb/text", formData);
+            setTextTitle("");
+            setTextContent("");
+            alert("Document texte ajouté avec succès !");
+            fetchDocuments();
+        } catch (error) {
+            console.error("Failed to submit text document", error);
+            alert("Erreur lors de l'ajout du document texte.");
+        } finally {
+            setIsSubmittingText(false);
         }
     };
 
     useEffect(() => {
         if (entityId) {
-            fetchChunks();
+            fetchDocuments();
         }
-    }, [entityId]);
+    }, [entityId, fetchDocuments]);
 
     const handleUpload = async (files: FileList) => {
+        const file = files[0];
+        if (!file) return;
+
         const formData = new FormData();
-        formData.append("file", files[0]);
+        formData.append("file", file);
+        formData.append("title", file.name); // Default title to filename
         formData.append("entity_id", entityId);
 
         try {
-            await api.post("/knowledge/upload", formData, {
+            await api.post("/kb/documents", formData, {
                 headers: {
                     "Content-Type": "multipart/form-data",
                 },
             });
-            fetchChunks();
+            alert("Document ajouté avec succès !");
+            fetchDocuments();
         } catch (error) {
             console.error("Failed to upload file", error);
-            alert("Erreur lors de l'upload");
+            alert("Erreur lors de l'upload du document.");
         }
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm("Supprimer ce chunk ?")) return;
+        if (!confirm("Supprimer ce document ?")) return;
         try {
-            await api.delete(`/knowledge/${id}`);
-            fetchChunks();
+            await api.delete(`/kb/documents/${id}`);
+            alert("Document supprimé avec succès !");
+            fetchDocuments();
         } catch (error) {
-            console.error("Failed to delete chunk", error);
+            console.error("Failed to delete document", error);
+            alert("Erreur lors de la suppression du document.");
         }
     };
 
@@ -76,6 +112,24 @@ export default function KnowledgePage() {
                         <p className="mt-2 text-xs text-muted-foreground">
                             Formats supportés : PDF, TXT, DOCX. Le fichier sera découpé et vectorisé.
                         </p>
+                        <div className="mt-6 h-px w-full bg-slate-200" />
+                        <h3 className="mt-4 mb-2 text-sm font-medium">Ou créer depuis un texte</h3>
+                        <div className="space-y-3">
+                            <Input
+                                placeholder="Titre du document"
+                                value={textTitle}
+                                onChange={(e) => setTextTitle(e.target.value)}
+                            />
+                            <Textarea
+                                placeholder="Collez ou écrivez ici votre contenu..."
+                                className="min-h-[160px]"
+                                value={textContent}
+                                onChange={(e) => setTextContent(e.target.value)}
+                            />
+                            <Button onClick={handleSubmitText} disabled={isSubmittingText}>
+                                {isSubmittingText ? "Ajout..." : "Ajouter le texte"}
+                            </Button>
+                        </div>
                     </div>
                 </div>
 
@@ -84,36 +138,38 @@ export default function KnowledgePage() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead>Source</TableHead>
-                                    <TableHead>Contenu (extrait)</TableHead>
+                                    <TableHead>Document</TableHead>
+                                    <TableHead>Contenu (Aperçu)</TableHead>
                                     <TableHead className="text-right">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {chunks.map((chunk) => (
-                                    <TableRow key={chunk.chunk_id}>
+                                {documents.map((doc) => (
+                                    <TableRow key={doc.doc_id}>
                                         <TableCell className="font-medium">
                                             <div className="flex items-center">
                                                 <FileText className="mr-2 h-4 w-4 text-muted-foreground" />
-                                                {chunk.source_doc}
+                                                {doc.title}
                                             </div>
                                         </TableCell>
                                         <TableCell className="max-w-md truncate">
-                                            {chunk.content}
+                                            {doc.chunks && doc.chunks.length > 0
+                                                ? doc.chunks[0].content.substring(0, 100) + "..."
+                                                : "Pas de contenu"}
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
                                                 className="text-red-500 hover:text-red-700"
-                                                onClick={() => handleDelete(chunk.chunk_id)}
+                                                onClick={() => handleDelete(doc.doc_id)}
                                             >
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>
                                         </TableCell>
                                     </TableRow>
                                 ))}
-                                {chunks.length === 0 && (
+                                {documents.length === 0 && (
                                     <TableRow>
                                         <TableCell colSpan={3} className="h-24 text-center">
                                             Aucune connaissance enregistrée.

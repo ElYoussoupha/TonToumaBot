@@ -85,9 +85,13 @@ export function UploadBox({ onUpload, accept = "*", maxFiles = 1 }: UploadBoxPro
                 </p>
                 <p className="mt-1 text-xs text-slate-500">ou</p>
                 <Button
-                    variant="link"
-                    className="mt-1"
-                    onClick={() => fileInputRef.current?.click()}
+                    type="button"
+                    variant="outline"
+                    className="mt-2"
+                    onClick={(e) => {
+                        e.stopPropagation(); // Prevent bubbling if nested
+                        fileInputRef.current?.click();
+                    }}
                     disabled={isUploading}
                 >
                     Parcourir les fichiers

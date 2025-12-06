@@ -11,6 +11,8 @@ class Entity(Base, TimestampMixin):
     entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     domain: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    contact_email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relations
     instances: Mapped[List["Instance"]] = relationship(back_populates="entity", cascade="all, delete-orphan")

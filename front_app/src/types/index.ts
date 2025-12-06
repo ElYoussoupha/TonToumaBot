@@ -44,8 +44,17 @@ export interface Speaker {
 
 export interface KnowledgeChunk {
   chunk_id: string;
-  entity_id: string;
+  doc_id: string;
+  chunk_index: number;
   content: string;
-  source_doc: string;
   created_at: string;
+}
+
+export interface KBDocument {
+  doc_id: string;
+  entity_id: string;
+  title: string;
+  source?: string;
+  created_at: string;
+  chunks: KnowledgeChunk[];
 }

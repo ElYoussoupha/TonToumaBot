@@ -34,7 +34,7 @@ class KBEmbedding(Base):
     __tablename__ = "kb_embeddings"
 
     chunk_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("kb_chunks.chunk_id"), primary_key=True)
-    embedding: Mapped[List[float]] = mapped_column(Vector(768), nullable=False)
+    embedding: Mapped[List[float]] = mapped_column(Vector(384), nullable=False)
 
     # Relations
     chunk: Mapped["KBChunk"] = relationship(back_populates="embedding")

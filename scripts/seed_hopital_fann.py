@@ -3,7 +3,7 @@ import httpx
 import json
 from uuid import UUID
 
-API_URL = "http://localhost:9000/api/v1"
+API_URL = "http://127.0.0.1:9000/api/v1"
 
 # Data to seed
 ENTITY_DATA = {
@@ -94,20 +94,43 @@ DOCUMENTS_DATA = [
     }
 ]
 
+async def wait_for_server(client):
+    print("⏳ Waiting for server to be ready...")
+    for i in range(10):
+        try:
+            response = await client.get("http://127.0.0.1:9000/docs")
+            if response.status_code == 200:
+                print("✅ Server is ready!")
+                return True
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+    print("❌ Server is not responding.")
+    return False
+
 async def seed():
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        if not await wait_for_server(client):
+            return
+
         print("🚀 Démarrage du script de seed...")
 
         # 1. Create Entity
         print(f"Creating Entity: {ENTITY_DATA['name']}...")
-        response = await client.post(f"{API_URL}/entities", json=ENTITY_DATA)
-        if response.status_code not in [200, 201]:
-            print(f"❌ Failed to create entity: {response.text}")
+        try:
+            response = await client.post(f"{API_URL}/entities", json=ENTITY_DATA)
+            if response.status_code not in [200, 201]:
+                print(f"❌ Failed to create entity: {response.text}")
+                return
+            
+            entity = response.json()
+            entity_id = entity["entity_id"]
+            print(f"✅ Entity created with ID: {entity_id}")
+        except Exception as e:
+            print(f"❌ Exception creating entity: {e}")
             return
-        
-        entity = response.json()
-        entity_id = entity["entity_id"]
-        print(f"✅ Entity created with ID: {entity_id}")
+
+        # ... (rest of the script)
 
         # 2. Create Instances
         print("\nCreating Instances...")
@@ -122,15 +145,17 @@ async def seed():
         # 3. Create Documents
         print("\nAdding Documents to Knowledge Base...")
         for doc_data in DOCUMENTS_DATA:
-            doc_payload = {
-                "title": doc_data["title"],
-                "source": doc_data["source"],
-                "content": doc_data["content"],
-                "entity_id": entity_id
+            # Prepare file upload
+            file_content = doc_data["content"].encode('utf-8')
+            files = {
+                "file": (doc_data["source"], file_content, "text/plain")
             }
-            # Note: We use the /documents endpoint directly for text content
-            # The /upload endpoint is for multipart files
-            response = await client.post(f"{API_URL}/kb/documents", json=doc_payload)
+            data = {
+                "title": doc_data["title"],
+                "entity_id": str(entity_id)
+            }
+            
+            response = await client.post(f"{API_URL}/kb/documents", data=data, files=files)
             if response.status_code in [200, 201]:
                 print(f"  ✅ Added document: {doc_data['title']}")
             else:

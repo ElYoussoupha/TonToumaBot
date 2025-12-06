@@ -10,12 +10,12 @@ class KBDocumentBase(BaseModel):
 
 class KBDocumentCreate(KBDocumentBase):
     entity_id: UUID
-    content: str # Raw content to be chunked
 
 class KBDocumentResponse(KBDocumentBase):
     doc_id: UUID
     entity_id: UUID
     created_at: datetime
+    chunks: List["KBChunkResponse"] = []
 
     class Config:
         from_attributes = True

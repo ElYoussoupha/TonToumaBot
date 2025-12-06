@@ -11,8 +11,23 @@ class RAGService:
         return self.model.encode(text).tolist()
 
     async def search_kb(self, db, entity_id, query_embedding, top_k=3):
-        # This would perform the vector search using pgvector
-        # For now, we return empty list or mock
-        # Real query:
-        # stmt = select(KBChunk).filter(KBChunk.doc_id.in_(...)).order_by(KBEmbedding.embedding.l2_distance(query_embedding)).limit(top_k)
-        return []
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from app.models.knowledge import KBChunk, KBEmbedding, KBDocument
+        
+        # Perform vector search
+        # Join KBEmbedding -> KBChunk -> KBDocument to filter by entity_id
+        # Use selectinload to eagerly load the document relationship
+        stmt = (
+            select(KBChunk)
+            .join(KBEmbedding)
+            .join(KBDocument)
+            .options(selectinload(KBChunk.document))
+            .filter(KBDocument.entity_id == entity_id)
+            .order_by(KBEmbedding.embedding.l2_distance(query_embedding))
+            .limit(top_k)
+        )
+        
+        result = await db.execute(stmt)
+        return result.scalars().all()
+

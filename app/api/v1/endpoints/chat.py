@@ -1,7 +1,7 @@
 import json
 from uuid import UUID
 from typing import Optional
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.config import settings
@@ -10,6 +10,11 @@ from app.models.chat import Session, Message, Speaker
 from app.schemas import chat as schemas
 
 router = APIRouter()
+
+# Fixed speaker ID for demo/testing purposes
+# In production, implement real speaker identification
+DEFAULT_SPEAKER_ID = None  # Cached value
+FIXED_SPEAKER_UUID = UUID("11111111-1111-1111-1111-111111111111")
 
 # Lazy-loaded services to avoid import errors at startup
 _audio_service = None
@@ -40,12 +45,40 @@ def get_llm_service() -> "LLMService":
         _llm_service = LLMService()
     return _llm_service
 
+from typing import Optional, Annotated
+
+async def get_or_create_default_speaker(db: AsyncSession) -> UUID:
+    """Get or create a fixed default speaker for all users using a specific UUID"""
+    global DEFAULT_SPEAKER_ID
+    if DEFAULT_SPEAKER_ID:
+        return DEFAULT_SPEAKER_ID
+
+    from sqlalchemy import select
+    # Try to fetch by fixed UUID
+    stmt = select(Speaker).filter(Speaker.speaker_id == FIXED_SPEAKER_UUID)
+    result = await db.execute(stmt)
+    speaker = result.scalars().first()
+
+    if not speaker:
+        # Create with fixed UUID
+        speaker = Speaker(
+            speaker_id=FIXED_SPEAKER_UUID,
+            fingerprint_hash="fixed-speaker",
+            embedding=[0.0] * 256
+        )
+        db.add(speaker)
+        await db.commit()
+        await db.refresh(speaker)
+
+    DEFAULT_SPEAKER_ID = speaker.speaker_id
+    return DEFAULT_SPEAKER_ID
+
 @router.post("/messages", response_model=dict)
 async def handle_voice_message(
-    instance_id: UUID = Form(...),
-    speaker_id: Optional[UUID] = Form(None),
-    metadata: Optional[str] = Form(None),
-    audio_file: UploadFile = File(...),
+    instance_id: Annotated[str, Form(...)],
+    audio_file: Annotated[UploadFile, File(...)],
+    speaker_id: Annotated[Optional[str], Form()] = None,
+    metadata: Annotated[Optional[str], Form()] = None,
     db: AsyncSession = Depends(get_db)
 ):
     # Get lazy-loaded services
@@ -59,16 +92,8 @@ async def handle_voice_message(
     # 2. Transcribe
     transcription = await audio_service.transcribe(audio_path)
     
-    # 3. Speaker Identification
-    if not speaker_id:
-        fingerprint, embedding = await audio_service.get_speaker_embedding(audio_path)
-        # Check if speaker exists (mock logic here, would query DB by fingerprint)
-        # For now, create new speaker
-        new_speaker = Speaker(fingerprint_hash=fingerprint, embedding=embedding)
-        db.add(new_speaker)
-        await db.commit()
-        await db.refresh(new_speaker)
-        speaker_id = new_speaker.speaker_id
+    # 3. Use fixed speaker ID for everyone
+    speaker_uuid = await get_or_create_default_speaker(db)
     
     # 4. Get Entity & Session
     instance = await crud_entity.instance.get(db=db, id=instance_id)
@@ -76,12 +101,20 @@ async def handle_voice_message(
         raise HTTPException(status_code=404, detail="Instance not found")
     
     # Find active session
-    # Simplified: just create new one for now or find last active
-    # In real app: query Session where speaker_id=... and is_active=True
-    session = Session(entity_id=instance.entity_id, speaker_id=speaker_id, is_active=True)
-    db.add(session)
-    await db.commit()
-    await db.refresh(session)
+    from sqlalchemy import select
+    stmt = select(Session).filter(
+        Session.entity_id == instance.entity_id,
+        Session.speaker_id == speaker_uuid,
+        Session.is_active == True
+    ).order_by(Session.created_at.desc())
+    result = await db.execute(stmt)
+    session = result.scalars().first()
+
+    if not session:
+        session = Session(entity_id=instance.entity_id, speaker_id=speaker_uuid, is_active=True)
+        db.add(session)
+        await db.commit()
+        await db.refresh(session)
     
     # 5. Save User Message
     user_msg = Message(
@@ -95,35 +128,147 @@ async def handle_voice_message(
     await db.commit()
     
     # 6. RAG
-    # query_embedding = await rag_service.embed_text(transcription)
-    # chunks = await rag_service.search_kb(db, instance.entity_id, query_embedding)
-    context = "Contexte simulé de la base de connaissances."
+    query_embedding = await rag_service.embed_text(transcription)
+    chunks = await rag_service.search_kb(db, instance.entity_id, query_embedding)
+    
+    context = ""
+    if chunks:
+        context = "\n\n".join([f"Source: {chunk.document.title}\nContent: {chunk.content}" for chunk in chunks])
+    else:
+        context = "Aucune information pertinente trouvée dans la base de connaissances."
     
     # 7. LLM
     # Get history
-    history = "Historique simulé."
-    system_instruction = "Tu es un assistant utile."
+    previous_messages = await crud_chat.message.get_by_session_id(db=db, session_id=session.session_id)
+    # Format history for LLM (last 10 messages)
+    history = ""
+    for msg in previous_messages[-10:]:
+        role_label = "User" if msg.role == "user" else "Assistant"
+        history += f"{role_label}: {msg.content}\n"
+
+    system_instruction = """Tu es un assistant virtuel utile et professionnel pour l'Hôpital Fann. 
+    Utilise le contexte fourni pour répondre aux questions. 
+    Si la réponse n'est pas dans le contexte, dis poliment que tu ne sais pas ou propose de contacter le secrétariat.
+    Sois concis et clair."""
     
     response_text = await llm_service.generate_response(
         system_instruction, context, history, transcription
     )
     
     # 8. Save Assistant Message
+    response_audio_path = await audio_service.text_to_speech(response_text)
+    
     assistant_msg = Message(
         session_id=session.session_id,
         instance_id=instance_id,
         role="assistant",
-        content=response_text
+        content=response_text,
+        audio_path=response_audio_path
     )
     db.add(assistant_msg)
     await db.commit()
     
-    # 9. TTS
-    response_audio_path = await audio_service.text_to_speech(response_text)
-    
     return {
-        "speaker_id": str(speaker_id),
+        "speaker_id": str(speaker_uuid),
         "session_id": str(session.session_id),
+        "transcription": transcription,  # User's transcribed text
+        "user_audio": audio_path,  # User's audio path
         "response_text": response_text,
-        "response_audio": response_audio_path # In real app, return URL or base64
+        "response_audio": response_audio_path
     }
+
+@router.post("/text", response_model=dict)
+async def handle_text_message(
+    *,
+    instance_id: str = Body(...),
+    text: str = Body(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Process a text message for the chatbot, mirroring the voice flow."""
+    # Get services
+    audio_service = get_audio_service()
+    rag_service = get_rag_service()
+    llm_service = get_llm_service()
+
+    # 1. Use fixed speaker ID
+    speaker_uuid = await get_or_create_default_speaker(db)
+
+    # 2. Get Entity & Session
+    instance = await crud_entity.instance.get(db=db, id=instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Instance not found")
+
+    from sqlalchemy import select
+    stmt = select(Session).filter(
+        Session.entity_id == instance.entity_id,
+        Session.speaker_id == speaker_uuid,
+        Session.is_active == True
+    ).order_by(Session.created_at.desc())
+    result = await db.execute(stmt)
+    session = result.scalars().first()
+
+    if not session:
+        session = Session(entity_id=instance.entity_id, speaker_id=speaker_uuid, is_active=True)
+        db.add(session)
+        await db.commit()
+        await db.refresh(session)
+
+    # 3. Save User Message (text only)
+    user_msg = Message(
+        session_id=session.session_id,
+        instance_id=instance_id,
+        role="user",
+        content=text,
+        audio_path=None
+    )
+    db.add(user_msg)
+    await db.commit()
+
+    # 4. RAG
+    query_embedding = await rag_service.embed_text(text)
+    chunks = await rag_service.search_kb(db, instance.entity_id, query_embedding)
+
+    context = ""
+    if chunks:
+        context = "\n\n".join([f"Source: {chunk.document.title}\nContent: {chunk.content}" for chunk in chunks])
+    else:
+        context = "Aucune information pertinente trouvée dans la base de connaissances."
+
+    # 5. LLM with history
+    previous_messages = await crud_chat.message.get_by_session_id(db=db, session_id=session.session_id)
+    history = ""
+    for msg in previous_messages[-10:]:
+        role_label = "User" if msg.role == "user" else "Assistant"
+        history += f"{role_label}: {msg.content}\n"
+
+    system_instruction = """Tu es un assistant virtuel utile et professionnel pour l'Hôpital Fann. 
+    Utilise le contexte fourni pour répondre aux questions. 
+    Si la réponse n'est pas dans le contexte, dis poliment que tu ne sais pas ou propose de contacter le secrétariat.
+    Sois concis et clair."""
+
+    response_text = await llm_service.generate_response(
+        system_instruction, context, history, text
+    )
+
+    # 6. Save Assistant Message (with TTS)
+    response_audio_path = await audio_service.text_to_speech(response_text)
+
+    assistant_msg = Message(
+        session_id=session.session_id,
+        instance_id=instance_id,
+        role="assistant",
+        content=response_text,
+        audio_path=response_audio_path
+    )
+    db.add(assistant_msg)
+    await db.commit()
+
+    return {
+        "speaker_id": str(speaker_uuid),
+        "session_id": str(session.session_id),
+        "transcription": text,
+        "user_audio": None,
+        "response_text": response_text,
+        "response_audio": response_audio_path
+    }
+

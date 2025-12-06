@@ -7,6 +7,8 @@ from pydantic import BaseModel
 class EntityBase(BaseModel):
     name: str
     domain: Optional[str] = None
+    description: Optional[str] = None
+    contact_email: Optional[str] = None
 
 class EntityCreate(EntityBase):
     pass
