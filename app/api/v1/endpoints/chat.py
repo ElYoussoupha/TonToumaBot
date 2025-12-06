@@ -241,19 +241,23 @@ async def handle_text_message(
         role_label = "User" if msg.role == "user" else "Assistant"
         history += f"{role_label}: {msg.content}\n"
 
-    system_instruction = """Tu es un assistant virtuel utile et professionnel pour l'Hôpital Fann. 
-    Tu peux aider les utilisateurs à:
-    1. Répondre à leurs questions en utilisant la base de connaissances
-    2. Prendre des rendez-vous avec les médecins
+    system_instruction = """Tu es un assistant virtuel professionnel et amical pour l'Hôpital Fann. 
     
-    Pour les rendez-vous, guide l'utilisateur étape par étape:
-    - Demande quelle spécialité ou médecin il recherche
-    - Propose une date
-    - Montre les créneaux disponibles
-    - Collecte nom, email et motif
-    - Confirme le rendez-vous
+    COMPORTEMENT GÉNÉRAL:
+    - Réponds aux questions des utilisateurs en utilisant la base de connaissances
+    - Sois naturel et conversationnel
+    - N'insiste PAS sur les rendez-vous si l'utilisateur ne le demande pas
+    - Attends que l'utilisateur exprime clairement le besoin d'un rendez-vous
     
-    Sois concis et professionnel."""
+    PRISE DE RENDEZ-VOUS (uniquement si demandé):
+    - Si l'utilisateur demande un rendez-vous, guide-le naturellement
+    - Accepte les dates en langage naturel ("lundi", "demain", "la semaine prochaine")
+    - Utilise parse_natural_date pour convertir les dates naturelles
+    - Collecte les informations progressivement sans bombarder de questions
+    - Confirme clairement quand le rendez-vous est réservé
+    
+    Sois concis, professionnel et à l'écoute."""
+
 
     # Try with function calling first
     llm_result = await llm_service.generate_response_with_tools(
@@ -321,6 +325,49 @@ async def handle_text_message(
     }
 
 
+def parse_natural_date(date_str: str) -> str:
+    """Parse natural language dates to YYYY-MM-DD format"""
+    from datetime import datetime, timedelta
+    import re
+    
+    date_str = date_str.lower().strip()
+    today = datetime.now().date()
+    
+    # Direct formats
+    if date_str in ["aujourd'hui", "auj", "today"]:
+        return today.isoformat()
+    elif date_str in ["demain", "tomorrow"]:
+        return (today + timedelta(days=1)).isoformat()
+    elif date_str in ["après-demain", "apres-demain"]:
+        return (today + timedelta(days=2)).isoformat()
+    
+    # Days of week
+    days_fr = {
+        "lundi": 0, "mardi": 1, "mercredi": 2, "jeudi": 3,
+        "vendredi": 4, "samedi": 5, "dimanche": 6
+    }
+    
+    for day_name, day_num in days_fr.items():
+        if day_name in date_str:
+            # Find next occurrence of this day
+            days_ahead = day_num - today.weekday()
+            if days_ahead <= 0:  # Target day already happened this week
+                days_ahead += 7
+            if "prochain" in date_str or "prochaine" in date_str:
+                days_ahead += 7  # Next week
+            return (today + timedelta(days=days_ahead)).isoformat()
+    
+    # Try to parse as YYYY-MM-DD
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+        return date_str
+    except:
+        pass
+    
+    # Default: return as-is and let the backend handle it
+    return date_str
+
+
 async def execute_appointment_function(
     db: AsyncSession, 
     entity_id, 
@@ -355,10 +402,13 @@ async def execute_appointment_function(
             if not date_str:
                 return {"success": False, "message": "Veuillez préciser une date."}
             
+            # Parse natural language date
+            parsed_date_str = parse_natural_date(date_str)
+            
             try:
-                target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                target_date = datetime.strptime(parsed_date_str, "%Y-%m-%d").date()
             except:
-                return {"success": False, "message": "Format de date invalide. Utilisez YYYY-MM-DD."}
+                return {"success": False, "message": f"Je n'ai pas compris la date '{date_str}'. Pouvez-vous préciser (ex: lundi, demain, 2025-01-15)?"}
             
             # Search by specialty name if no doctor_id
             specialty_id = None
@@ -400,11 +450,14 @@ async def execute_appointment_function(
             if missing:
                 return {"success": False, "message": f"Informations manquantes: {', '.join(missing)}"}
             
+            # Parse natural language date
+            parsed_date_str = parse_natural_date(func_args["date"])
+            
             try:
-                target_date = datetime.strptime(func_args["date"], "%Y-%m-%d").date()
+                target_date = datetime.strptime(parsed_date_str, "%Y-%m-%d").date()
                 target_time = datetime.strptime(func_args["time"], "%H:%M").time()
-            except:
-                return {"success": False, "message": "Format de date ou heure invalide."}
+            except Exception as e:
+                return {"success": False, "message": f"Format de date ou heure invalide: {str(e)}"}
             
             request = BookAppointmentRequest(
                 entity_id=entity_id,
