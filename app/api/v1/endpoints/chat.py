@@ -250,13 +250,34 @@ async def handle_text_message(
     - Attends que l'utilisateur exprime clairement le besoin d'un rendez-vous
     
     PRISE DE RENDEZ-VOUS (uniquement si demandé):
-    - Si l'utilisateur demande un rendez-vous, guide-le naturellement
-    - Accepte les dates en langage naturel ("lundi", "demain", "la semaine prochaine")
-    - Utilise parse_natural_date pour convertir les dates naturelles
-    - Collecte les informations progressivement sans bombarder de questions
-    - Confirme clairement quand le rendez-vous est réservé
+    IMPORTANT - UTILISE LES FONCTIONS ET LEURS RÉSULTATS:
     
-    Sois concis, professionnel et à l'écoute."""
+    1. Quand l'utilisateur demande un RDV avec une spécialité:
+       - Appelle search_doctors avec la spécialité
+       - UTILISE le doctor_id retourné (ne le demande JAMAIS à l'utilisateur)
+    
+    2. Pour les dates naturelles ("lundi", "demain"):
+       - Accepte-les directement, elles seront converties automatiquement
+       - NE demande PAS de format spécifique
+    
+    3. Pour les créneaux disponibles:
+       - Appelle get_available_slots avec le doctor_id que tu as obtenu
+       - Propose les créneaux au patient
+    
+    4. Pour réserver:
+       - Collecte: nom, email, téléphone (optionnel), motif
+       - NE redemande PAS les infos déjà données dans la conversation
+       - Appelle book_appointment avec TOUTES les infos
+    
+    5. Après booking:
+       - Si success=True: Confirme clairement le RDV
+       - Si success=False: Explique l'erreur et propose une solution
+    
+    RÈGLES CRITIQUES:
+    - NE demande JAMAIS l'ID du médecin à l'utilisateur
+    - NE redemande PAS les informations déjà fournies
+    - UTILISE les résultats des fonctions pour continuer
+    - Sois concis et efficace"""
 
 
     # Try with function calling first
@@ -271,9 +292,16 @@ async def handle_text_message(
         func_name = llm_result["content"]["name"]
         func_args = llm_result["content"]["args"]
         
+        # Log function call for debugging
+        print(f"🔧 Function call: {func_name}")
+        print(f"📝 Arguments: {func_args}")
+        
         func_result = await execute_appointment_function(
             db, instance.entity_id, session.session_id, func_name, func_args
         )
+        
+        # Log function result
+        print(f"✅ Function result: {func_result}")
         
         # Continue conversation with function result
         continuation = await llm_service.continue_with_function_result(
@@ -282,14 +310,21 @@ async def handle_text_message(
             json.dumps(func_result, ensure_ascii=False, default=str)
         )
         
-        # Handle nested function calls (max 3 iterations)
-        for _ in range(3):
+        # Handle nested function calls (max 5 iterations for complex flows)
+        for i in range(5):
             if continuation["type"] == "function_call":
                 nested_func_name = continuation["content"]["name"]
                 nested_func_args = continuation["content"]["args"]
+                
+                print(f"🔧 Nested function call #{i+1}: {nested_func_name}")
+                print(f"📝 Arguments: {nested_func_args}")
+                
                 nested_result = await execute_appointment_function(
                     db, instance.entity_id, session.session_id, nested_func_name, nested_func_args
                 )
+                
+                print(f"✅ Nested result: {nested_result}")
+                
                 continuation = await llm_service.continue_with_function_result(
                     f"Previous result for {nested_func_name}",
                     nested_func_name,
