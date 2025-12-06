@@ -58,3 +58,61 @@ export interface KBDocument {
   created_at: string;
   chunks: KnowledgeChunk[];
 }
+
+export interface Specialty {
+  specialty_id: string;
+  name: string;
+  description?: string;
+  created_at: string;
+}
+
+export interface Doctor {
+  doctor_id: string;
+  entity_id: string;
+  specialty_id?: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone?: string;
+  consultation_duration: number;
+  is_active: boolean;
+  created_at: string;
+  specialty_name?: string;
+}
+
+export interface DoctorCredentials {
+  doctor_id: string;
+  email: string;
+  temporary_password: string;
+  message: string;
+}
+
+export interface TimeSlot {
+  slot_id: string;
+  doctor_id: string;
+  day_of_week?: number;
+  specific_date?: string;
+  start_time: string;
+  end_time: string;
+  is_recurring: boolean;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Appointment {
+  appointment_id: string;
+  doctor_id: string;
+  session_id?: string;
+  patient_name: string;
+  patient_email: string;
+  patient_phone?: string;
+  reason: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
+  created_at: string;
+  doctor_first_name?: string;
+  doctor_last_name?: string;
+  specialty_name?: string;
+}

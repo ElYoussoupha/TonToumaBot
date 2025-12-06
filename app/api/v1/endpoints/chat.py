@@ -184,7 +184,7 @@ async def handle_text_message(
     text: str = Body(...),
     db: AsyncSession = Depends(get_db)
 ):
-    """Process a text message for the chatbot, mirroring the voice flow."""
+    """Process a text message for the chatbot with appointment booking support."""
     # Get services
     audio_service = get_audio_service()
     rag_service = get_rag_service()
@@ -234,7 +234,7 @@ async def handle_text_message(
     else:
         context = "Aucune information pertinente trouvée dans la base de connaissances."
 
-    # 5. LLM with history
+    # 5. LLM with history and function calling
     previous_messages = await crud_chat.message.get_by_session_id(db=db, session_id=session.session_id)
     history = ""
     for msg in previous_messages[-10:]:
@@ -242,13 +242,61 @@ async def handle_text_message(
         history += f"{role_label}: {msg.content}\n"
 
     system_instruction = """Tu es un assistant virtuel utile et professionnel pour l'Hôpital Fann. 
-    Utilise le contexte fourni pour répondre aux questions. 
-    Si la réponse n'est pas dans le contexte, dis poliment que tu ne sais pas ou propose de contacter le secrétariat.
-    Sois concis et clair."""
+    Tu peux aider les utilisateurs à:
+    1. Répondre à leurs questions en utilisant la base de connaissances
+    2. Prendre des rendez-vous avec les médecins
+    
+    Pour les rendez-vous, guide l'utilisateur étape par étape:
+    - Demande quelle spécialité ou médecin il recherche
+    - Propose une date
+    - Montre les créneaux disponibles
+    - Collecte nom, email et motif
+    - Confirme le rendez-vous
+    
+    Sois concis et professionnel."""
 
-    response_text = await llm_service.generate_response(
+    # Try with function calling first
+    llm_result = await llm_service.generate_response_with_tools(
         system_instruction, context, history, text
     )
+    
+    response_text = ""
+    
+    # Handle function calls
+    if llm_result["type"] == "function_call":
+        func_name = llm_result["content"]["name"]
+        func_args = llm_result["content"]["args"]
+        
+        func_result = await execute_appointment_function(
+            db, instance.entity_id, session.session_id, func_name, func_args
+        )
+        
+        # Continue conversation with function result
+        continuation = await llm_service.continue_with_function_result(
+            f"System: {system_instruction}\nContext: {context}\nHistory: {history}\nUser: {text}",
+            func_name,
+            json.dumps(func_result, ensure_ascii=False, default=str)
+        )
+        
+        # Handle nested function calls (max 3 iterations)
+        for _ in range(3):
+            if continuation["type"] == "function_call":
+                nested_func_name = continuation["content"]["name"]
+                nested_func_args = continuation["content"]["args"]
+                nested_result = await execute_appointment_function(
+                    db, instance.entity_id, session.session_id, nested_func_name, nested_func_args
+                )
+                continuation = await llm_service.continue_with_function_result(
+                    f"Previous result for {nested_func_name}",
+                    nested_func_name,
+                    json.dumps(nested_result, ensure_ascii=False, default=str)
+                )
+            else:
+                break
+        
+        response_text = continuation["content"]
+    else:
+        response_text = llm_result["content"]
 
     # 6. Save Assistant Message (with TTS)
     response_audio_path = await audio_service.text_to_speech(response_text)
@@ -272,3 +320,116 @@ async def handle_text_message(
         "response_audio": response_audio_path
     }
 
+
+async def execute_appointment_function(
+    db: AsyncSession, 
+    entity_id, 
+    session_id,
+    func_name: str, 
+    func_args: dict
+) -> dict:
+    """Execute an appointment-related function call"""
+    from datetime import datetime, date, time
+    from app.services.appointment_service import appointment_service
+    from app.schemas.appointment import BookAppointmentRequest
+    from uuid import UUID
+    
+    try:
+        if func_name == "search_doctors":
+            specialty = func_args.get("specialty")
+            doctors = await appointment_service.search_doctors(
+                db=db,
+                entity_id=entity_id,
+                specialty_name=specialty
+            )
+            if doctors:
+                return {"success": True, "doctors": doctors}
+            else:
+                return {"success": False, "message": "Aucun médecin trouvé pour cette spécialité."}
+        
+        elif func_name == "get_available_slots":
+            date_str = func_args.get("date")
+            doctor_id = func_args.get("doctor_id")
+            specialty = func_args.get("specialty")
+            
+            if not date_str:
+                return {"success": False, "message": "Veuillez préciser une date."}
+            
+            try:
+                target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except:
+                return {"success": False, "message": "Format de date invalide. Utilisez YYYY-MM-DD."}
+            
+            # Search by specialty name if no doctor_id
+            specialty_id = None
+            if specialty and not doctor_id:
+                from app.crud.crud_appointment import specialty as specialty_crud
+                spec = await specialty_crud.get_by_name(db=db, name=specialty)
+                if spec:
+                    specialty_id = spec.specialty_id
+            
+            slots = await appointment_service.get_available_slots(
+                db=db,
+                entity_id=entity_id,
+                target_date=target_date,
+                specialty_id=specialty_id,
+                doctor_id=UUID(doctor_id) if doctor_id else None
+            )
+            
+            if slots:
+                return {
+                    "success": True, 
+                    "slots": [
+                        {
+                            "doctor_id": str(s.doctor_id),
+                            "doctor_name": s.doctor_name,
+                            "specialty": s.specialty_name,
+                            "date": s.date.isoformat(),
+                            "start_time": s.start_time.strftime("%H:%M"),
+                            "end_time": s.end_time.strftime("%H:%M")
+                        }
+                        for s in slots
+                    ]
+                }
+            else:
+                return {"success": False, "message": "Aucun créneau disponible à cette date."}
+        
+        elif func_name == "book_appointment":
+            required = ["doctor_id", "date", "time", "patient_name", "patient_email", "reason"]
+            missing = [f for f in required if not func_args.get(f)]
+            if missing:
+                return {"success": False, "message": f"Informations manquantes: {', '.join(missing)}"}
+            
+            try:
+                target_date = datetime.strptime(func_args["date"], "%Y-%m-%d").date()
+                target_time = datetime.strptime(func_args["time"], "%H:%M").time()
+            except:
+                return {"success": False, "message": "Format de date ou heure invalide."}
+            
+            request = BookAppointmentRequest(
+                entity_id=entity_id,
+                doctor_id=UUID(func_args["doctor_id"]),
+                date=target_date,
+                start_time=target_time,
+                patient_name=func_args["patient_name"],
+                patient_email=func_args["patient_email"],
+                patient_phone=func_args.get("patient_phone"),
+                reason=func_args["reason"],
+                session_id=session_id
+            )
+            
+            result = await appointment_service.book_appointment(db=db, request=request)
+            return {
+                "success": result.success,
+                "message": result.message,
+                "appointment_id": str(result.appointment_id) if result.appointment_id else None,
+                "doctor_name": result.doctor_name,
+                "date": result.date.isoformat() if result.date else None,
+                "time": result.time.strftime("%H:%M") if result.time else None
+            }
+        
+        else:
+            return {"success": False, "message": f"Fonction inconnue: {func_name}"}
+            
+    except Exception as e:
+        return {"success": False, "message": f"Erreur: {str(e)}"}

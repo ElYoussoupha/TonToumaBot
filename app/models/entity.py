@@ -19,6 +19,7 @@ class Entity(Base, TimestampMixin):
     users: Mapped[List["User"]] = relationship(back_populates="entity")
     kb_documents: Mapped[List["KBDocument"]] = relationship(back_populates="entity")
     sessions: Mapped[List["Session"]] = relationship(back_populates="entity")
+    doctors: Mapped[List["Doctor"]] = relationship(back_populates="entity", cascade="all, delete-orphan")
 
 class Instance(Base, TimestampMixin):
     __tablename__ = "instances"

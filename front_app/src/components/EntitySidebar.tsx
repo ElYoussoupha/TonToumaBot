@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
-import { Home, Database, Server, MessageSquare, PlayCircle, ArrowLeft } from "lucide-react";
+import { Home, Database, Server, MessageSquare, PlayCircle, ArrowLeft, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
 
@@ -15,6 +15,7 @@ export function EntitySidebar() {
     const navigation = [
         { name: "Accueil", href: `/entity/${entityId}`, icon: Home },
         { name: "Base de connaissance", href: `/entity/${entityId}/knowledge`, icon: Database },
+        { name: "Personnel", href: `/entity/${entityId}/staff`, icon: Users },
         { name: "Instances", href: `/entity/${entityId}/instances`, icon: Server },
         { name: "Sessions", href: `/entity/${entityId}/sessions`, icon: MessageSquare },
         { name: "Test Chatbot", href: `/entity/${entityId}/test`, icon: PlayCircle },
