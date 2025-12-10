@@ -40,8 +40,8 @@ export default function StaffPage() {
         setIsLoading(true);
         try {
             const [doctorsRes, specialtiesRes] = await Promise.all([
-                api.get<Doctor[]>(`/doctors?entity_id=${entityId}`),
-                api.get<Specialty[]>("/specialties")
+                api.get<Doctor[]>(`/doctors/?entity_id=${entityId}`),
+                api.get<Specialty[]>("/specialties/")
             ]);
             setDoctors(doctorsRes.data || []);
             setSpecialties(specialtiesRes.data || []);
@@ -55,7 +55,7 @@ export default function StaffPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            const res = await api.post<DoctorCredentials>("/doctors", {
+            const res = await api.post<DoctorCredentials>("/doctors/", {
                 ...formData,
                 entity_id: entityId,
                 specialty_id: formData.specialty_id || null

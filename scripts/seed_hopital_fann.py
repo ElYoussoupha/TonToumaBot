@@ -1,9 +1,11 @@
 import asyncio
 import httpx
 import json
+import os
 from uuid import UUID
 
-API_URL = "http://127.0.0.1:9000/api/v1"
+# Allow overriding the API URL via environment variable. Default to backend port 9000
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:9000/api/v1")
 
 # Data to seed
 ENTITY_DATA = {
@@ -98,7 +100,10 @@ async def wait_for_server(client):
     print("⏳ Waiting for server to be ready...")
     for i in range(10):
         try:
-            response = await client.get("http://127.0.0.1:9000/docs")
+            # check the backend docs endpoint derived from API_URL
+            base = API_URL.rstrip('/')
+            docs_url = base.replace('/api/v1', '') + '/docs'
+            response = await client.get(docs_url)
             if response.status_code == 200:
                 print("✅ Server is ready!")
                 return True
@@ -119,12 +124,18 @@ async def seed():
         print(f"Creating Entity: {ENTITY_DATA['name']}...")
         try:
             response = await client.post(f"{API_URL}/entities", json=ENTITY_DATA)
+            # Debug output: print status and body to help tracing
+            print(f"[DEBUG] POST {API_URL}/entities -> status {response.status_code}")
+            try:
+                print(f"[DEBUG] response: {response.text}")
+            except Exception:
+                pass
             if response.status_code not in [200, 201]:
-                print(f"❌ Failed to create entity: {response.text}")
+                print(f"❌ Failed to create entity: status={response.status_code} body={response.text}")
                 return
-            
+
             entity = response.json()
-            entity_id = entity["entity_id"]
+            entity_id = entity.get("entity_id")
             print(f"✅ Entity created with ID: {entity_id}")
         except Exception as e:
             print(f"❌ Exception creating entity: {e}")

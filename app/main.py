@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 from app.core.config import settings
 from app.api.v1.api import api_router
 
@@ -55,4 +56,5 @@ async def validation_exception_handler(request, exc):
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to Tontouma Voice Chatbot API"}
+    return RedirectResponse(url="/admin")
+

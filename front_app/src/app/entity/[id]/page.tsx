@@ -52,7 +52,7 @@ export default function EntityHome() {
                 // Parallel fetching
                 const [entityRes, doctorsRes, kbRes, instancesRes, apptRes] = await Promise.all([
                     api.get<Entity>(`/entities/${entityId}`),
-                    api.get<Doctor[]>("/doctors"),
+                    api.get<Doctor[]>("/doctors/"),
                     api.get<KBDocument[]>(`/kb/documents/${entityId}`),
                     api.get<Instance[]>("/instances"),
                     api.get<any[]>("/appointments") // Assuming this endpoint returns all appointments, we filter client side 

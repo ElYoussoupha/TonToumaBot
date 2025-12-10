@@ -79,9 +79,31 @@ export default function TestChatbotPage() {
     // Helpers
     const buildUploadsUrl = (path?: string | null) => {
         if (!path) return null;
-        if (path.startsWith('http')) return path;
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:9000';
-        return `${baseUrl}/${path.replace(/^\//, '')}`;
+        if (path.startsWith("http")) return path;
+
+        // Normaliser le chemin pour gérer :
+        // - chemins système du backend (/app/uploads/xxx.mp3)
+        // - chemins déjà publics (/uploads/xxx.mp3 ou uploads/xxx.mp3)
+        // - simples noms de fichiers (xxx.mp3)
+        let cleanPath = path.replace(/\\/g, "/"); // windows -> unix
+
+        const uploadsSegment = "/uploads/";
+        const idx = cleanPath.lastIndexOf(uploadsSegment);
+        if (idx !== -1) {
+            // Garder à partir de "uploads/xxx.mp3"
+            cleanPath = cleanPath.substring(idx + 1); // enlève le premier '/'
+        } else {
+            // Pas de segment /uploads/, on reconstruit à partir du nom de fichier
+            const parts = cleanPath.split("/");
+            const filename = parts[parts.length - 1];
+            cleanPath = `uploads/${filename}`;
+        }
+
+        // S'assurer qu'il n'y a pas de slash de tête pour la concaténation
+        cleanPath = cleanPath.replace(/^\/+/, "");
+
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace("/api/v1", "") || "http://localhost:9000";
+        return `${baseUrl}/${cleanPath}`;
     };
 
     const addMessage = (msg: Message) => {

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Environment files
+.env
+.env.*
+
+# Node / Next
+front_app/node_modules/
+front_app/.next/
+
+# Git
+.git
+
+# Others
+uploads/

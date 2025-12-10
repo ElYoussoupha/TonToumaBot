@@ -58,9 +58,13 @@ services:
       dockerfile: Dockerfile.backend
     container_name: tontouma-backend
     ports:
-      - "8000:8000"
+      - "9000:9000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/tontouma
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=tontouma
       - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-test}
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=minioadmin
@@ -74,7 +78,7 @@ services:
       createbuckets:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:9000/docs', timeout=2)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -85,9 +89,9 @@ services:
       dockerfile: Dockerfile.frontend
     container_name: tontouma-frontend
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:9000
     depends_on:
       - backend
     healthcheck:
