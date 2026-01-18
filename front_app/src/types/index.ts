@@ -3,6 +3,9 @@ export interface Entity {
   name: string;
   description?: string;
   contact_email?: string;
+  system_prompt?: string;
+  dashboard_modules?: string[];  // e.g. ["personnel"]
+  custom_dashboard_component?: string;  // e.g. "govathon"
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +35,7 @@ export interface Message {
   instance_id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  translated_content?: string | null;
   audio_path?: string | null;
   created_at: string;
 }

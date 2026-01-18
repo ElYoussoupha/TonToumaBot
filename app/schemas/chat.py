@@ -25,6 +25,7 @@ class SessionResponse(SessionBase):
 class MessageBase(BaseModel):
     role: str
     content: Optional[str] = None
+    translated_content: Optional[str] = None
     audio_path: Optional[str] = None
     tokens: Optional[int] = None
 

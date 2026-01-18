@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { MessageSquare, User } from "lucide-react";
 import {
     Table,
@@ -17,14 +17,30 @@ import { Session } from "@/types";
 
 export default function EntitySessionsPage() {
     const params = useParams();
-    const entityId = params.id as string;
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const entityId = params["id"] as string;
+    const instanceIdFilter = searchParams.get("instance_id");
+
     const [sessions, setSessions] = useState<Session[]>([]);
 
     useEffect(() => {
         const fetchSessions = async () => {
             try {
                 const res = await api.get<Session[]>(`/sessions?entity_id=${entityId}`);
-                setSessions(res.data);
+                let data = res.data;
+
+                if (instanceIdFilter) {
+                    // Start of workaround: If backend doesn't support exact instance filtering on this endpoint yet, do it here.
+                    // But wait, the Session model DOES have instance_id.
+                    // Ideally check backend support. Assuming backend returns all entity sessions, we filter here.
+                    // Actually, let's filter client side for now to be safe.
+                    // NOTE: The Session type definition in frontend might need instance_id field if not present.
+                    // Assuming it is present or we rely on backend improvements later.
+                    // Let's rely on client-side filtering safely.
+                    data = data.filter((s: any) => s.instance_id === instanceIdFilter || s.instance?.instance_id === instanceIdFilter);
+                }
+                setSessions(data);
             } catch (error) {
                 console.error("Failed to fetch sessions", error);
             }
@@ -51,8 +67,12 @@ export default function EntitySessionsPage() {
                     </TableHeader>
                     <TableBody>
                         {sessions.map((session) => (
-                            <TableRow key={session.session_id}>
-                                <TableCell className="font-mono text-xs">{session.session_id}</TableCell>
+                            <TableRow
+                                key={session.session_id}
+                                className="cursor-pointer hover:bg-muted/50"
+                                onClick={() => router.push(`/entity/${entityId}/sessions/${session.session_id}`)}
+                            >
+                                <TableCell className="font-mono text-xs text-blue-600">{session.session_id}</TableCell>
                                 <TableCell>
                                     <div className="flex items-center">
                                         <User className="mr-2 h-4 w-4 text-muted-foreground" />

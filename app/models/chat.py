@@ -40,6 +40,7 @@ class Message(Base, TimestampMixin):
     instance_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("instances.instance_id"), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False) # user/assistant/system
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    translated_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True) # French translation if content is in another language
     audio_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 

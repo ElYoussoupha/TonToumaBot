@@ -2,7 +2,7 @@ import uuid
 from typing import List, Optional
 from sqlalchemy import String, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.models.base import Base, TimestampMixin
 
 class Entity(Base, TimestampMixin):
@@ -13,6 +13,9 @@ class Entity(Base, TimestampMixin):
     domain: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     contact_email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Custom chatbot personality
+    dashboard_modules: Mapped[Optional[List[str]]] = mapped_column(JSONB, nullable=True, default=list)  # e.g. ["personnel"]
+    custom_dashboard_component: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # e.g. "govathon"
 
     # Relations
     instances: Mapped[List["Instance"]] = relationship(back_populates="entity", cascade="all, delete-orphan")

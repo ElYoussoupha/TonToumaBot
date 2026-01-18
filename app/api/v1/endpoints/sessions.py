@@ -24,11 +24,16 @@ async def create_session(
 async def read_sessions(
     db: AsyncSession = Depends(get_db),
     skip: int = 0,
-    limit: int = 100
+    limit: int = 100,
+    entity_id: UUID | None = None
 ) -> Any:
     """
     Retrieve sessions.
     """
+    if entity_id:
+        return await crud_chat.session.get_multi_by_entity(
+            db=db, entity_id=entity_id, skip=skip, limit=limit
+        )
     return await crud_chat.session.get_multi(db=db, skip=skip, limit=limit)
 
 # --- Messages for a session ---

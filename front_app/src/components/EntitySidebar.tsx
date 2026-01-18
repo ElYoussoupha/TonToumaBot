@@ -5,6 +5,7 @@ import { usePathname, useParams } from "next/navigation";
 import { Home, Database, Server, MessageSquare, PlayCircle, ArrowLeft, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
+import { useMemo } from "react";
 
 export function EntitySidebar() {
     const pathname = usePathname();
@@ -12,14 +13,30 @@ export function EntitySidebar() {
     const entityId = params.id as string;
     const { currentEntity } = useAppStore();
 
-    const navigation = [
-        { name: "Accueil", href: `/entity/${entityId}`, icon: Home },
-        { name: "Base de connaissance", href: `/entity/${entityId}/knowledge`, icon: Database },
-        { name: "Personnel", href: `/entity/${entityId}/staff`, icon: Users },
-        { name: "Instances", href: `/entity/${entityId}/instances`, icon: Server },
-        { name: "Sessions", href: `/entity/${entityId}/sessions`, icon: MessageSquare },
-        { name: "Test Chatbot", href: `/entity/${entityId}/test`, icon: PlayCircle },
-    ];
+    // Build navigation based on entity's dashboard_modules
+    const navigation = useMemo(() => {
+        const baseNav = [
+            { name: "Accueil", href: `/entity/${entityId}`, icon: Home },
+            { name: "Base de connaissance", href: `/entity/${entityId}/knowledge`, icon: Database },
+            { name: "Instances", href: `/entity/${entityId}/instances`, icon: Server },
+            { name: "Sessions", href: `/entity/${entityId}/sessions`, icon: MessageSquare },
+            { name: "Test Chatbot", href: `/entity/${entityId}/test`, icon: PlayCircle },
+        ];
+
+        const modules = currentEntity?.dashboard_modules || [];
+
+        // Add Personnel module if entity has it
+        if (modules.includes("personnel")) {
+            // Insert after "Base de connaissance"
+            baseNav.splice(2, 0, {
+                name: "Personnel",
+                href: `/entity/${entityId}/staff`,
+                icon: Users
+            });
+        }
+
+        return baseNav;
+    }, [entityId, currentEntity?.dashboard_modules]);
 
     return (
         <div className="flex h-full w-64 flex-col bg-indigo-900 text-white">
@@ -66,3 +83,4 @@ export function EntitySidebar() {
         </div>
     );
 }
+

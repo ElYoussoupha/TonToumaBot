@@ -1,6 +1,8 @@
 import asyncio
 import random
 import uuid
+import secrets
+import hashlib
 from datetime import datetime, timedelta, time, date
 
 import sys
@@ -18,9 +20,11 @@ from app.models.specialty import Specialty
 from app.models.timeslot import TimeSlot
 from app.models.appointment import Appointment, AppointmentStatus
 
-# Mock password hash since app.utils.password is missing
+# Proper password hash to match app authentication
 def get_password_hash(password: str) -> str:
-    return f"hashed_{password}"
+    salt = secrets.token_hex(16)
+    hashed = hashlib.sha256((password + salt).encode()).hexdigest()
+    return f"{salt}${hashed}"
 
 # Data
 SPECIALTIES_DATA = [

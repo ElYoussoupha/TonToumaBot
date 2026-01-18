@@ -28,3 +28,10 @@ Validation Error: 3 validation errors:
   File "C:\Users\hp\Documents\Projets\TonToumaBot\app\api\v1\endpoints\knowledge.py", line 186, in create_document_from_text
     POST /api/v1/kb/text
 Errors: [{'type': 'missing', 'loc': ('body', 'title'), 'msg': 'Field required', 'input': None}, {'type': 'missing', 'loc': ('body', 'content'), 'msg': 'Field required', 'input': None}, {'type': 'missing', 'loc': ('body', 'entity_id'), 'msg': 'Field required', 'input': None}]
+Validation Error: 2 validation errors:
+  {'type': 'missing', 'loc': ('body', 'instance_id'), 'msg': 'Field required', 'input': None}
+  {'type': 'missing', 'loc': ('body', 'audio_file'), 'msg': 'Field required', 'input': None}
+
+  File "C:\Users\hp\Documents\Projets\TonToumaBot\app\api\v1\endpoints\chat.py", line 376, in handle_voice_message
+    POST /api/v1/chat/messages
+Errors: [{'type': 'missing', 'loc': ('body', 'instance_id'), 'msg': 'Field required', 'input': None}, {'type': 'missing', 'loc': ('body', 'audio_file'), 'msg': 'Field required', 'input': None}]

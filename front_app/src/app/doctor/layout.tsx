@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Calendar, Clock, LogOut, User } from "lucide-react";
+import { Calendar, Clock, LogOut, User, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function DoctorLayout({
@@ -58,8 +58,9 @@ export default function DoctorLayout({
     }
 
     const navigation = [
-        { name: "Dashboard", href: "/doctor", icon: Calendar },
-        { name: "Mes créneaux", href: "/doctor/schedule", icon: Clock },
+        { name: "Dashboard", href: "/doctor", icon: LayoutGrid },
+        { name: "Mes créneaux", href: "/doctor/creneaux", icon: Clock },
+        { name: "Mon calendrier", href: "/doctor/calendrier", icon: Calendar },
     ];
 
     return (

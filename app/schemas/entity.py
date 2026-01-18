@@ -9,6 +9,9 @@ class EntityBase(BaseModel):
     domain: Optional[str] = None
     description: Optional[str] = None
     contact_email: Optional[str] = None
+    system_prompt: Optional[str] = None  # Custom chatbot personality
+    dashboard_modules: Optional[List[str]] = None  # e.g. ["personnel"]
+    custom_dashboard_component: Optional[str] = None  # e.g. "govathon"
 
 class EntityCreate(EntityBase):
     pass

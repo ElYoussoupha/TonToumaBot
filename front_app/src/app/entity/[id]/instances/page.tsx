@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import {
     Table,
@@ -16,6 +16,7 @@ import { Instance } from "@/types";
 
 export default function EntityInstancesPage() {
     const params = useParams();
+    const router = useRouter();
     const entityId = params.id as string;
     const [instances, setInstances] = useState<Instance[]>([]);
 
@@ -52,8 +53,12 @@ export default function EntityInstancesPage() {
                     </TableHeader>
                     <TableBody>
                         {instances.map((instance) => (
-                            <TableRow key={instance.instance_id}>
-                                <TableCell className="font-medium">{instance.name}</TableCell>
+                            <TableRow
+                                key={instance.instance_id}
+                                className="cursor-pointer hover:bg-muted/50"
+                                onClick={() => router.push(`/entity/${entityId}/sessions?instance_id=${instance.instance_id}`)}
+                            >
+                                <TableCell className="font-medium text-blue-600">{instance.name}</TableCell>
                                 <TableCell>{instance.location}</TableCell>
                                 <TableCell>
                                     <Badge variant={instance.status === "active" ? "default" : "secondary"}>

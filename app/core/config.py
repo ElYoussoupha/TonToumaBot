@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o"
+    OPENAI_TIMEOUT: float = 60.0 # Increased timeout for slow networks
+    OPENAI_MAX_RETRIES: int = 3
     UPLOAD_DIR: str = "uploads"
 
     # MinIO
@@ -21,6 +23,11 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET: str = "tontouma-knowledge"
     MINIO_SECURE: bool = False
+
+    # LAfricaMobile API
+    LAFRICAMOBILE_USERNAME: Optional[str] = None
+    LAFRICAMOBILE_PASSWORD: Optional[str] = None
+    LAFRICAMOBILE_BASE_URL: str = "https://ttsapi.lafricamobile.com"
 
     @computed_field
     @property

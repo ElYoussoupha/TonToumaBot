@@ -1,243 +1,166 @@
-# API Reference
+# API Reference & Guide d'Intégration
 
 Base URL: `http://localhost:9000/api/v1`
 
-Auth: aucune (développement). Les CORS sont ouverts.
+## 📚 Guide d'Intégration Rapide
 
-## Conventions
-- IDs: UUIDv4
-- Dates: ISO 8601
-- DTOs: voir sections Response/Request ci-dessous
+Ce guide explique comment connecter une application tierce (frontend, widget, borne interactive) au backend TonToumaBot.
 
----
+### Étape 1 : Identifier ou Créer une Instance
+Chaque chatbot est lié à une **Instance** (qui appartient à une **Entité**).
 
-## Entities
-
-- POST `/entities`
-  - Request (JSON): `{ name: string, description?: string, contact_email?: string }`
-  - Response: `EntityResponse`
-- GET `/entities`
-  - Query: `skip?`, `limit?`
-  - Response: `EntityResponse[]`
-- GET `/entities/{entity_id}`
-  - Response: `EntityResponse`
-- PUT `/entities/{entity_id}`
-  - Request (JSON): `{ name?: string, description?: string, contact_email?: string }`
-  - Response: `EntityResponse`
-- DELETE `/entities/{entity_id}`
-  - Response: `EntityResponse`
-
-DTO: `EntityResponse`
+#### GET /instances
+Récupère la liste des instances disponibles.
+**Response Example:**
+```json
+[
+  {
+    "instance_id": "550e8400-e29b-41d4-a716-446655440000",
+    "entity_id": "770e8400-e29b-41d4-a716-446655440000",
+    "name": "Accueil Principal",
+    "location": "Dakar",
+    "status": "active",
+    "api_key": "..."
+  }
+]
 ```
+> **ID Important** : Sauvegardez le champ `instance_id`. Il sera requis pour toutes les interactions de chat.
+
+### Étape 2 : Initialiser une Session
+Pour maintenir le contexte de la conversation (historique des échanges), vous devez créer ou identifier une session.
+
+#### POST /chat/sessions
+Crée une nouvelle session de chat.
+**Request Body:**
+```json
 {
-  entity_id: string,
-  name: string,
-  description?: string,
-  contact_email?: string,
-  created_at: string,
-  updated_at: string
+  "instance_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
-
-### Instances
-- POST `/instances`
-  - Request (JSON): `{ entity_id: string, name: string, location?: string, status: 'active'|'inactive'|'maintenance' }`
-  - Response: `InstanceResponse` (inclut un `api_key` généré côté serveur)
-- GET `/instances`
-  - Response: `InstanceResponse[]`
-- GET `/instances/{instance_id}`
-  - Response: `InstanceResponse`
-- PUT `/instances/{instance_id}`
-  - Request (JSON): `{ name?: string, location?: string, status?: ... }`
-  - Response: `InstanceResponse`
-- DELETE `/instances/{instance_id}`
-  - Response: `InstanceResponse`
-
-DTO: `InstanceResponse`
-```
+**Response Example:**
+```json
 {
-  instance_id: string,
-  entity_id: string,
-  name: string,
-  location?: string,
-  status: 'active'|'inactive'|'maintenance',
-  created_at: string,
-  last_heartbeat?: string,
-  api_key?: string
+  "success": true,
+  "session_id": "880e8400-e29b-41d4-a716-446655440000",
+  "instance_id": "550e8400-e29b-41d4-a716-446655440000",
+  "entity_id": "770e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
----
+### Étape 3 : Échanger des Messages
 
-## Sessions & Messages
-
-- POST `/sessions`
-  - Request (JSON): `{ entity_id: string, speaker_id?: string, is_active?: boolean }`
-  - Response: `SessionResponse`
-- GET `/sessions`
-  - Response: `SessionResponse[]`
-- GET `/sessions/{session_id}`
-  - Response: `SessionResponse`
-- GET `/sessions/{session_id}/messages`
-  - Response: `MessageResponse[]`
-
-DTOs:
-```
-SessionResponse {
-  session_id: string,
-  entity_id: string,
-  speaker_id?: string,
-  created_at: string,
-  expires_at?: string,
-  is_active: boolean
-}
-
-MessageResponse {
-  message_id: string,
-  session_id: string,
-  instance_id: string,
-  role: 'user'|'assistant'|'system',
-  content?: string,
-  audio_path?: string,
-  tokens?: number,
-  created_at: string
-}
-```
-
----
-
-## Chat
-
-### 1) Message vocal
-- POST `/chat/messages` (multipart/form-data)
-  - Form fields:
-    - `instance_id`: string (UUID)
-    - `audio_file`: file (wav recommandé)
-    - `speaker_id?`: ignoré (speaker fixe en démo)
-    - `metadata?`: string
-  - Response (JSON):
-```
+#### POST /chat/text
+Envoyer un message texte.
+**Request Body:**
+```json
 {
-  speaker_id: string,
-  session_id: string,
-  transcription: string,
-  user_audio: string,           // chemin relatif ex: uploads/xxx.wav
-  response_text: string,
-  response_audio: string        // chemin relatif ex: uploads/xxx.mp3
+  "instance_id": "550e8400-e29b-41d4-a716-446655440000",
+  "text": "Bonjour, quels sont les horaires ?",
+  "session_id": "880e8400-e29b-41d4-a716-446655440000",
+  "forced_language": "fr" // Optionnel: "fr", "wo", "en"
+}
+```
+**Response Example:**
+```json
+{
+  "session_id": "880e8400-e29b-41d4-a716-446655440000",
+  "transcription": "Bonjour, quels sont les horaires ?",
+  "response_text": "Nous sommes ouverts de 8h à 18h.",
+  "response_audio": "/uploads/audio_response_123.wav",
+  "detected_language": "fr"
 }
 ```
 
-### 2) Message texte
-- POST `/chat/text` (application/json)
-  - Body: `{ instance_id: string, text: string }`
-  - Response: identique au vocal, avec `user_audio: null` et `transcription = text`.
+#### POST /chat/messages
+Envoyer un message vocal (Multipart Form Data).
+**FormData:**
+- `instance_id`: "550e8400-e29b-41d4-a716-446655440000"
+- `audio_file`: [Fichier binaire .wav/.mp3]
+- `session_id`: "880e8400-e29b-41d4-a716-446655440000"
+- `forced_language`: "wo" (Optionnel)
 
-Notes:
-- Le `speaker_id` est fixe en mode démo: `11111111-1111-1111-1111-111111111111`.
-- Les fichiers audio sont servis via `GET http://localhost:9000/uploads/...`.
-
----
-
-## Knowledge Base (KB)
-
-### Lire les documents
-- GET `/kb/documents/{entity_id}`
-  - Response: `KBDocumentResponse[]` (avec `chunks`)
-
-### Créer via upload de fichier
-- POST `/kb/documents` (multipart/form-data)
-  - Form: `title`, `file`, `entity_id`
-  - Le fichier est stocké (MinIO) et un texte est extrait (PDF supporté basique, sinon UTF-8), puis découpé en chunks et vectorisé.
-  - Response: `KBDocumentResponse` (avec `chunks`)
-
-### Upload simple (legacy)
-- POST `/kb/upload` (multipart/form-data)
-  - Form: `entity_id`, `file`
-  - Décodage texte simple et création d’un document.
-
-### Créer depuis un texte brut
-- POST `/kb/text` (multipart/form-data)
-  - Form: `title`, `content`, `entity_id`
-  - Découpe en chunks de 500 chars + embeddings.
-  - Response: `KBDocumentResponse` (avec `chunks`)
-
-### Lire les chunks d’un document
-- GET `/kb/chunks/{doc_id}`
-  - Response: `KBChunkResponse[]`
-
-### Embeddings
-- POST `/kb/embeddings`
-  - Body (JSON): `{ chunk_id: string, embedding: number[] }`
-  - Response: `KBEmbeddingResponse`
-- GET `/kb/embeddings/{chunk_id}`
-  - Response: `KBEmbeddingResponse`
-
-### Supprimer un document
-- DELETE `/kb/documents/{doc_id}`
-  - Response: `KBDocumentResponse`
-
-DTOs:
-```
-KBDocumentResponse {
-  doc_id: string,
-  entity_id: string,
-  title: string,
-  source?: string,
-  created_at: string,
-  chunks: KBChunkResponse[]
-}
-
-KBChunkResponse {
-  chunk_id: string,
-  doc_id: string,
-  chunk_index: number,
-  content: string,
-  created_at: string
-}
-
-KBEmbeddingResponse {
-  chunk_id: string,
-  embedding: number[]
+**Response Example:**
+```json
+{
+  "session_id": "880e8400-e29b-41d4-a716-446655440000",
+  "transcription": "Naka suba ci ?",
+  "response_text": "Jamm rek, alhamdulillah.",
+  "response_audio": "/uploads/audio_response_456.wav",
+  "detected_language": "wo"
 }
 ```
 
 ---
 
-## Exemples cURL
+## 📖 Référence Complète
 
-Créer une entité:
-```
-curl -X POST http://localhost:9000/api/v1/entities \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Hopital Fann","description":"Chatbot accueil"}'
-```
+### Authentication
+Aucune (Mode Développement). Les CORS sont ouverts.
 
-Uploader un fichier KB:
-```
-curl -X POST http://localhost:9000/api/v1/kb/documents \
-  -F title="Guide accueil" \
-  -F entity_id="<ENTITY_ID>" \
-  -F file=@/path/to/file.pdf
-```
+### Entities & Instances
 
-Créer un doc KB depuis du texte:
-```
-curl -X POST http://localhost:9000/api/v1/kb/text \
-  -F title="Consignes" \
-  -F content="Voici des informations utiles..." \
-  -F entity_id="<ENTITY_ID>"
+#### GET /entities
+Lister les organisations.
+**Response Example:**
+```json
+[
+  {
+    "entity_id": "uuid",
+    "name": "Clinique des Mamelles",
+    "description": "Clinique privée..."
+  }
+]
 ```
 
-Tester le chat texte:
-```
-curl -X POST http://localhost:9000/api/v1/chat/text \
-  -H "Content-Type: application/json" \
-  -d '{"instance_id":"<INSTANCE_ID>", "text":"Bonjour"}'
+#### GET /chat/sessions
+Lister l'historique des sessions pour une instance.
+**Query Param**: `?instance_id={uuid}`
+**Response Example:**
+```json
+[
+  {
+    "session_id": "uuid",
+    "created_at": "2023-10-27T10:00:00",
+    "message_count": 5,
+    "preview": "Bonjour, je voudrais prendre rendez-vous..."
+  }
+]
 ```
 
-Tester le chat audio:
+---
+
+### Medical & Appointments
+
+#### GET /appointments/available
+Rechercher des créneaux.
+**Query Params**: `entity_id={uuid}&date=2023-12-25&specialty_id={uuid}`
+**Response Example:**
+```json
+{
+  "success": true,
+  "slots": [
+    {
+      "doctor_id": "uuid",
+      "doctor_name": "Dr. Diop",
+      "date": "2023-12-25",
+      "start_time": "09:00",
+      "end_time": "09:30"
+    }
+  ]
+}
 ```
-curl -X POST http://localhost:9000/api/v1/chat/messages \
-  -F instance_id="<INSTANCE_ID>" \
-  -F audio_file=@/path/to/audio.wav
+
+#### POST /appointments/book
+Réserver un créneau.
+**Request Body:**
+```json
+{
+  "doctor_id": "uuid",
+  "date": "2023-12-25",
+  "time": "09:00",
+  "patient_name": "Moussa Diouf",
+  "patient_phone": "771234567",
+  "reason": "Consultation générale",
+  "session_id": "uuid"
+}
 ```

@@ -185,16 +185,45 @@ async def process_chat_request(
     db: AsyncSession,
     instance_id: str,
     user_input: str,
-    audio_path: Optional[str] = None
+    audio_path: Optional[str] = None,
+    detected_language: str = "fr",
+    forced_language: Optional[str] = None,
+    session_id: Optional[str] = None
 ) -> dict:
     """
     Common logic for processing both text and voice chat requests.
     Handles RAG, History, LLM, Tools, and Persistence.
+    For Wolof (wo): translates input to French, processes, then translates back.
     """
-    # Services
     rag_service = get_rag_service()
     llm_service = get_llm_service()
     audio_service = get_audio_service()
+    
+    # Import global settings function
+    from app.api.v1.endpoints.global_settings import get_global_forced_language
+    
+    # Cascading priority: per-request forced_language > global setting > detected_language
+    if forced_language and forced_language != "auto":
+        lang_to_use = forced_language
+    else:
+        global_lang = get_global_forced_language()
+        if global_lang:
+            lang_to_use = global_lang
+        else:
+            lang_to_use = detected_language
+    
+    # Normalize language code
+    if lang_to_use == "wolof":
+        lang_to_use = "wo"
+
+    # Wolof handling: translate input to French for processing
+    is_wolof = lang_to_use == "wo"
+    original_user_input = user_input
+    
+    if is_wolof:
+        print(f"[Wolof] Detected Wolof input, translating to French...")
+        user_input = await llm_service.translate_wolof_to_french(user_input)
+        print(f"[Wolof] Translated: {user_input}")
 
     # 1. Setup Session
     speaker_uuid = await get_or_create_default_speaker(db)
@@ -202,14 +231,27 @@ async def process_chat_request(
     if not instance:
         raise HTTPException(status_code=404, detail="Instance not found")
 
-    stmt = select(Session).filter(
-        Session.entity_id == instance.entity_id,
-        Session.speaker_id == speaker_uuid,
-        Session.is_active == True
-    ).order_by(Session.created_at.desc())
-    result = await db.execute(stmt)
-    session = result.scalars().first()
+    session = None
+    if session_id:
+        # Try to fetch specific session
+        stmt = select(Session).filter(Session.session_id == UUID(session_id))
+        result = await db.execute(stmt)
+        session = result.scalars().first()
+        
+        if not session:
+            print(f"[Warn] Session {session_id} not found, falling back to new session")
+    
+    # If no session_id provided or not found, try to find last active session for this speaker/instance
+    if not session:
+        stmt = select(Session).filter(
+            Session.entity_id == instance.entity_id,
+            Session.speaker_id == speaker_uuid,
+            Session.is_active == True
+        ).order_by(Session.created_at.desc())
+        result = await db.execute(stmt)
+        session = result.scalars().first()
 
+    # Create new session if still none
     if not session:
         session = Session(entity_id=instance.entity_id, speaker_id=speaker_uuid, is_active=True)
         db.add(session)
@@ -221,7 +263,8 @@ async def process_chat_request(
         session_id=session.session_id,
         instance_id=instance_id,
         role="user",
-        content=user_input,
+        content=original_user_input, # Always save original input in 'content' for UI
+        translated_content=user_input if is_wolof else None, # Save French translation if Wolof
         audio_path=audio_path
     )
     db.add(user_msg)
@@ -238,44 +281,49 @@ async def process_chat_request(
         context = "Aucune information pertinente trouvée dans la base de connaissances."
 
     # 4. Build History (including previous tools outputs)
+    # Exclude the current user message we just saved, because we pass the translated version as explicit input
     previous_messages = await crud_chat.message.get_by_session_id(db=db, session_id=session.session_id)
     history = ""
-    # Take last 15 messages to ensure we have enough context
-    for msg in previous_messages[-15:]:
+    # Take last 15 messages excluding the very last one (current user msg)
+    msgs_to_process = previous_messages[:-1] if previous_messages else []
+    for msg in msgs_to_process[-15:]:
+        # Use translated content for history if available, otherwise regular content
+        msg_content = msg.translated_content if msg.translated_content else msg.content
+        
         if msg.role == "user":
-            history += f"User: {msg.content}\n"
+            history += f"User: {msg_content}\n"
         elif msg.role == "assistant":
-            history += f"Assistant: {msg.content}\n"
+            # Assistant messages are already in French (translated for invalid output only)
+            # Actually, we should check if assistant message has a translation? 
+            # Logic: Assistant writes in French (content), then we translate to Wolof for UI display.
+            # But in DB we just saved 'display_response_text' which might be Wolof.
+            # Wait, let's fix assistant saving too later. For now assume content is fine or check below.
+            history += f"Assistant: {msg_content}\n"
         elif msg.role == "tool":
             # Include tool outputs in history so LLM remembers IDs
             history += f"System (Tool Output): {msg.content}\n"
 
-    # 5. System Instruction
-    system_instruction = """Tu es un assistant virtuel professionnel et amical pour l'Hôpital Fann. 
+    # 5. System Instruction - Use entity-specific prompt if available
+    # Fetch entity first to avoid lazy loading issues in async context
+    from app.models.entity import Entity
+    entity_stmt = select(Entity).filter(Entity.entity_id == instance.entity_id)
+    entity_result = await db.execute(entity_stmt)
+    entity = entity_result.scalars().first()
+    
+    entity_name = entity.name if entity else 'cette organisation'
+    
+    if entity and entity.system_prompt:
+        system_instruction = entity.system_prompt
+        print(f"[Chat] Using custom system prompt for entity: {entity.name}")
+    else:
+        system_instruction = f"""Tu es un assistant virtuel professionnel et amical pour {entity_name}. 
     
     COMPORTEMENT GÉNÉRAL:
     - Réponds aux questions des utilisateurs en utilisant la base de connaissances
     - Sois naturel et conversationnel
-    - N'insiste PAS sur les rendez-vous si l'utilisateur ne le demande pas
     - IMPORTANT: Ne mets JAMAIS de formattage markdown (pas de gras, pas d'italique, pas d'étoiles *). Le texte sera lu par un outil de synthèse vocale qui lit les caractères spéciaux. Écris en texte brut uniquement.
-    
-    PRISE DE RENDEZ-VOUS (uniquement si demandé):
-    1. Quand l'utilisateur demande un RDV avec une spécialité:
-       - Appelle search_doctors avec la spécialité
-       - UTILISE le doctor_id retourné dans le résultat de l'outil pour les étapes suivantes.
-    
-    2. Pour les dates naturelles ("lundi", "demain"):
-       - Accepte-les directement (ex: "lundi").
-    
-    3. Pour les créneaux disponibles:
-       - Appelle get_available_slots avec le doctor_id
-       - Propose les créneaux trouvés.
-    
-    4. Pour réserver:
-       - Collecte: nom, email, téléphone, motif
-       - Appelle book_appointment avec TOUTES les infos (doctor_id, date, heure, etc.)
-       - Confirme si succès.
     """
+        print(f"[Chat] Using default system prompt")
 
     # 6. LLM Interaction Loop (Handle Tools)
     current_text = user_input
@@ -328,16 +376,33 @@ async def process_chat_request(
     
     if not final_response_text:
         final_response_text = "Désolé, je rencontre une erreur technique."
+    
+    # Wolof handling: translate response back to Wolof
+    display_response_text = final_response_text
+    if is_wolof:
+        print(f"[Wolof] French response: {final_response_text}")
+        print(f"[Wolof] Translating response to Wolof...")
+        display_response_text = await llm_service.translate_french_to_wolof(final_response_text)
+        print(f"[Wolof] Wolof response: {display_response_text}")
 
-    # 7. Generate Audio Response
-    response_audio_path = await audio_service.text_to_speech(final_response_text)
+    # 7. Generate Audio Response (use specified language TTS)
+    response_audio_path = await audio_service.text_to_speech(
+        display_response_text, 
+        language=lang_to_use
+    )
 
-    # 8. Save Assistant Response
+    # 8. Save Assistant Response (save translated version)
+    # We save the French version as primary content for LLM context in future
+    # But wait, if we save French in content, UI will show French.
+    # The requirement is: UI shows Wolof, LLM sees French.
+    # So 'content' should be Wolof (display_response_text), 'translated_content' should be French (final_response_text).
+    
     assistant_msg = Message(
         session_id=session.session_id,
         instance_id=instance_id,
         role="assistant",
-        content=final_response_text,
+        content=display_response_text, # Wolof (if translated) or French
+        translated_content=final_response_text if is_wolof else None, # French source
         audio_path=response_audio_path
     )
     db.add(assistant_msg)
@@ -346,11 +411,94 @@ async def process_chat_request(
     return {
         "speaker_id": str(speaker_uuid),
         "session_id": str(session.session_id),
-        "transcription": user_input,
+        "transcription": original_user_input if is_wolof else user_input,
         "user_audio": audio_path,
-        "response_text": final_response_text,
-        "response_audio": response_audio_path
+        "response_text": display_response_text,
+        "response_audio": response_audio_path,
+        "detected_language": detected_language,
+        "forced_language": forced_language
     }
+
+@router.post("/sessions", response_model=dict)
+async def create_new_session(
+    instance_id: str = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Create a new chat session for a specific instance.
+    Returns the session_id to be used in subsequent requests.
+    """
+    speaker_uuid = await get_or_create_default_speaker(db)
+    
+    # Verify instance existence
+    instance = await crud_entity.instance.get(db=db, id=instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Instance not found")
+        
+    # Always create a FRESH session
+    new_session = Session(
+        entity_id=instance.entity_id, 
+        speaker_id=speaker_uuid, 
+        is_active=True
+    )
+    db.add(new_session)
+    await db.commit()
+    await db.refresh(new_session)
+    
+    return {
+        "success": True, 
+        "session_id": str(new_session.session_id),
+        "instance_id": str(instance.instance_id),
+        "entity_id": str(instance.entity_id)
+    }
+
+@router.get("/sessions", response_model=List[Dict[str, Any]])
+async def list_sessions(
+    instance_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List all sessions for a specific instance (and default speaker).
+    Returns basic info: session_id, created_at, message_count, last_message_preview.
+    """
+    speaker_uuid = await get_or_create_default_speaker(db)
+    
+    # Verify instance
+    instance = await crud_entity.instance.get(db=db, id=instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Instance not found")
+
+    # Fetch sessions
+    sessions_stmt = select(Session).filter(
+        Session.entity_id == instance.entity_id,
+        Session.speaker_id == speaker_uuid
+    ).order_by(Session.created_at.desc())
+    
+    result = await db.execute(sessions_stmt)
+    sessions = result.scalars().all()
+    
+    response = []
+    for sess in sessions:
+        # Get message count and last message
+        msgs_stmt = select(Message).filter(Message.session_id == sess.session_id).order_by(Message.created_at.desc())
+        msgs_result = await db.execute(msgs_stmt)
+        messages = msgs_result.scalars().all()
+        
+        count = len(messages)
+        if count == 0:
+            continue # Skip empty sessions if desired, or keep them
+            
+        last_msg = messages[0] if messages else None
+        preview = last_msg.content[:50] + "..." if last_msg and last_msg.content else "Nouvelle session"
+        
+        response.append({
+            "session_id": str(sess.session_id),
+            "created_at": sess.created_at,
+            "message_count": count,
+            "preview": preview
+        })
+        
+    return response
 
 @router.post("/messages", response_model=dict)
 async def handle_voice_message(
@@ -358,25 +506,51 @@ async def handle_voice_message(
     audio_file: UploadFile = File(...),
     speaker_id: Optional[str] = Form(None),
     metadata: Optional[str] = Form(None),
+    forced_language: Optional[str] = Form(None),
+    session_id: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db)
 ):
     audio_service = get_audio_service()
     
-    # Save & Transcribe
+    # Save & Transcribe (supports forced language to bypass LID)
     audio_path = await audio_service.save_upload_file(audio_file)
-    transcription = await audio_service.transcribe(audio_path)
+    transcription, final_lang = await audio_service.transcribe(audio_path, forced_language=forced_language)
     
-    # Process
-    return await process_chat_request(db, instance_id, transcription, audio_path)
+    print(f"[Chat] Voice message - Forced: {forced_language}, Detected: {final_lang}, Text: {transcription[:50]}...")
+    
+    # Process with language info
+    return await process_chat_request(
+        db, instance_id, transcription, audio_path, 
+        detected_language=final_lang, 
+        forced_language=forced_language,
+        session_id=session_id
+    )
 
 @router.post("/text", response_model=dict)
 async def handle_text_message(
     instance_id: str = Body(...),
     text: str = Body(...),
+    forced_language: Optional[str] = Body(None),
+    session_id: Optional[str] = Body(None),
     db: AsyncSession = Depends(get_db)
 ):
-    # Process
-    return await process_chat_request(db, instance_id, text, None)
+    if not forced_language or forced_language == "auto":
+        llm_service = get_llm_service()
+        detected_language = await llm_service.detect_language(text)
+    else:
+        detected_language = forced_language
+    
+    import logging
+    logger = logging.getLogger("uvicorn")
+    logger.info(f"[Chat] Text message - Forced: {forced_language}, Detected: {detected_language}, Text: {text[:50]}...")
+    
+    # Process with language info (same pipeline as voice)
+    return await process_chat_request(
+        db, instance_id, text, None, 
+        detected_language=detected_language,
+        forced_language=forced_language,
+        session_id=session_id
+    )
 
 def parse_natural_date(date_str: str) -> str:
     """Parse natural language dates to YYYY-MM-DD format"""

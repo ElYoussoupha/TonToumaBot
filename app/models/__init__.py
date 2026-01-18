@@ -6,3 +6,4 @@ from app.models.specialty import Specialty
 from app.models.doctor import Doctor
 from app.models.timeslot import TimeSlot
 from app.models.appointment import Appointment, AppointmentStatus
+from app.models.custom_chat import CustomChatConfig, CustomChatMessage

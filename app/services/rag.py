@@ -4,8 +4,12 @@ from app.core.config import settings
 
 class RAGService:
     def __init__(self):
-        print("Initializing OpenAI Client for Embeddings...")
-        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        print(f"Initializing OpenAI Client for Embeddings (timeout={settings.OPENAI_TIMEOUT}s, retries={settings.OPENAI_MAX_RETRIES})...")
+        self.client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=settings.OPENAI_TIMEOUT,
+            max_retries=settings.OPENAI_MAX_RETRIES
+        )
         self.model = "text-embedding-3-small"
 
     async def embed_text(self, text: str) -> List[float]:

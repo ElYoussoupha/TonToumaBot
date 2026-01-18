@@ -29,10 +29,10 @@ async def reset_doctor_passwords():
         doctors = result.scalars().all()
         
         if not doctors:
-            print("❌ No doctors found")
+            print("[Error] No doctors found")
             return
         
-        print(f"✅ Found {len(doctors)} doctors")
+        print(f"[OK] Found {len(doctors)} doctors")
         print("-" * 60)
         
         # Reset passwords
@@ -41,11 +41,11 @@ async def reset_doctor_passwords():
         
         for doctor in doctors:
             doctor.password_hash = hashed_password
-            print(f"✓ Reset password for Dr. {doctor.first_name} {doctor.last_name}")
+            print(f"[OK] Reset password for Dr. {doctor.first_name} {doctor.last_name}")
         
         await db.commit()
         print("-" * 60)
-        print(f"✅ All passwords reset to '{password}'")
+        print(f"[OK] All passwords reset to '{password}'")
         print("\nCredentials for Dr. Abdoulaye Mbaye:")
         print(f"  Email: abdoulaye.mbaye@hopital-fann.sn")
         print(f"  Password: {password}")

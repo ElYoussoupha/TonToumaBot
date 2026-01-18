@@ -93,11 +93,34 @@ APPOINTMENT_TOOLS = [
 class LLMService:
     def __init__(self):
         if settings.OPENAI_API_KEY:
-            self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            print(f"Initializing OpenAI Client for LLM (timeout={settings.OPENAI_TIMEOUT}s, retries={settings.OPENAI_MAX_RETRIES})...")
+            self.client = AsyncOpenAI(
+                api_key=settings.OPENAI_API_KEY,
+                timeout=settings.OPENAI_TIMEOUT,
+                max_retries=settings.OPENAI_MAX_RETRIES
+            )
             self.model = settings.OPENAI_MODEL
         else:
             self.client = None
             self.model = None
+            
+        # NLLB model removed as we use LAfricaMobile
+        # self._nllb_model = None
+        # self._nllb_tokenizer = None
+        # self._nllb_device = "cpu"
+        
+        # LAfricaMobile Service (lazy loaded)
+        self._lafricamobile_service = None
+
+    def _get_lafricamobile_service(self):
+        if self._lafricamobile_service is None:
+            from app.services.lafricamobile import LAfricaMobileService
+            self._lafricamobile_service = LAfricaMobileService()
+        return self._lafricamobile_service
+
+    # NLLB loading method removed
+    # def _load_nllb_model(self):
+    #     ...
 
     def _parse_history(self, history_str: str) -> List[Dict[str, str]]:
         """
@@ -242,3 +265,75 @@ class LLMService:
             
         except Exception as e:
             return {"type": "text", "content": f"Error: {str(e)}"}
+
+    async def translate_wolof_to_french(self, text: str) -> str:
+        """Translate Wolof text to French using LAfricaMobile."""
+        # Try LAfricaMobile
+        try:
+            print("[Translation] Translating Wolof -> French via LAfricaMobile...")
+            service = self._get_lafricamobile_service()
+            return await service.translate(text, to_lang="french")
+        except Exception as e:
+            print(f"[Translation] LAfricaMobile failed ({e}). Returning original text.")
+            # raise e # Or return text? For now return text to avoid crash
+            return text
+
+        # GPT Fallback REMOVED to ensure strict usage of LAfricaMobile
+        # if not self.client: ...
+
+    async def translate_french_to_wolof(self, text: str) -> str:
+        """Translate French text to Wolof using LAfricaMobile."""
+        # Try LAfricaMobile
+        try:
+            print("[Translation] Translating French -> Wolof via LAfricaMobile...")
+            service = self._get_lafricamobile_service()
+            return await service.translate(text, to_lang="wolof")
+        except Exception as e:
+            print(f"[Translation] LAfricaMobile failed ({e}). Returning original text.")
+            return text
+
+        # NLLB and GPT Fallback REMOVED to ensure strict usage of LAfricaMobile
+
+    async def detect_language(self, text: str) -> str:
+        """
+        Detect the language of the given text using GPT.
+        Returns ISO language code: 'wo' for Wolof, 'fr' for French, etc.
+        """
+        if not self.client or not text.strip():
+            return "fr"  # Default to French
+        
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """Tu es un detecteur de langue expert. Identifie la langue du texte suivant.
+Reponds UNIQUEMENT avec le code ISO de la langue:
+- 'wo' pour Wolof
+- 'fr' pour Francais
+- 'en' pour Anglais
+- 'ar' pour Arabe
+
+Reponds seulement avec le code, rien d'autre."""
+                    },
+                    {"role": "user", "content": text}
+                ],
+                temperature=0,
+                max_tokens=5
+            )
+            detected = response.choices[0].message.content.strip().lower()
+            # Clean up response
+            if detected in ['wo', 'wolof']:
+                return 'wo'
+            elif detected in ['fr', 'french', 'francais', 'français']:
+                return 'fr'
+            elif detected in ['en', 'english', 'anglais']:
+                return 'en'
+            elif detected in ['ar', 'arabic', 'arabe']:
+                return 'ar'
+            else:
+                return 'fr'  # Default
+        except Exception as e:
+            print(f"[Language] Detection failed: {e}")
+            return "fr"
