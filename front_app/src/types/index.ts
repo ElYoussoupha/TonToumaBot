@@ -33,7 +33,7 @@ export interface Message {
   message_id: string;
   session_id: string;
   instance_id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   translated_content?: string | null;
   audio_path?: string | null;
